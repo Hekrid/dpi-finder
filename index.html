@@ -1,0 +1,124 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>DPI Finder</title>
+  <meta name="description" content="An aim-trainer style test that measures your mouse movement and recommends your optimal DPI and sensitivity.">
+  <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Ccircle cx='16' cy='16' r='11' fill='none' stroke='%2322d3ee' stroke-width='3'/%3E%3Ccircle cx='16' cy='16' r='3' fill='%23f97316'/%3E%3C/svg%3E">
+  <link rel="stylesheet" href="style.css">
+</head>
+<body>
+  <canvas id="view"></canvas>
+
+  <!-- HUD shown during the test -->
+  <div id="hud" hidden>
+    <span id="hud-round"></span>
+    <span id="hud-task"></span>
+    <span id="hud-progress"></span>
+  </div>
+
+  <!-- Setup -->
+  <section id="setup" class="screen">
+    <div class="card">
+      <header class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="16" cy="16" r="3" class="dot"/></svg>
+        <h1>DPI Finder</h1>
+      </header>
+      <p class="lede">A short aim test that plays at several hidden sensitivities, measures how your hand actually moves, and recommends the DPI and sensitivity you aim best with.</p>
+
+      <form id="setup-form" autocomplete="off">
+        <label class="field">
+          <span>Your current mouse DPI</span>
+          <input id="in-dpi" type="number" min="100" max="32000" step="50" value="800" required>
+          <small>Browsers can't read this from the mouse, so check your mouse software.</small>
+        </label>
+
+        <label class="field">
+          <span>Game to match</span>
+          <select id="in-game">
+            <option value="none">No game, match my desktop cursor</option>
+            <option value="cs2">Counter-Strike 2</option>
+            <option value="valorant" selected>Valorant</option>
+            <option value="apex">Apex Legends</option>
+            <option value="ow2">Overwatch 2</option>
+            <option value="cod">Call of Duty</option>
+            <option value="custom">Other (enter cm/360)</option>
+          </select>
+        </label>
+
+        <label class="field" id="f-sens">
+          <span>In-game sensitivity</span>
+          <input id="in-sens" type="number" min="0.001" step="any" value="0.4">
+        </label>
+
+        <label class="field" id="f-cm" hidden>
+          <span>Your cm/360</span>
+          <input id="in-cm" type="number" min="5" max="200" step="any" value="35">
+          <small>How far the mouse travels for one full turn in game.</small>
+        </label>
+
+        <fieldset class="field">
+          <legend>Test length</legend>
+          <div class="seg">
+            <label><input type="radio" name="len" value="quick"><span>Quick<br><small>~1.5 min</small></span></label>
+            <label><input type="radio" name="len" value="standard" checked><span>Standard<br><small>~2.5 min</small></span></label>
+            <label><input type="radio" name="len" value="thorough"><span>Thorough<br><small>~5 min</small></span></label>
+          </div>
+        </fieldset>
+
+        <details class="tips">
+          <summary>How it works, and tips for a clean result</summary>
+          <ul>
+            <li>You'll play a warm-up and then several rounds. Each round silently changes your sensitivity, so you can't bias the result.</li>
+            <li>Each round has <b>flicks</b> (click each orange target as fast as you can) and <b>tracking</b> (keep the crosshair on a strafing target).</li>
+            <li>We look at speed, accuracy, overshoot, undershoot, correction movements and tracking lag at each sensitivity, then find the peak.</li>
+            <li>Play in a full-screen window, sit how you normally game, and turn off mouse acceleration ("Enhance pointer precision" on Windows).</li>
+            <li>Press <kbd>Esc</kbd> anytime to pause.</li>
+          </ul>
+        </details>
+
+        <button class="primary" type="submit">Start the test</button>
+        <p id="support-msg" class="warn" hidden></p>
+      </form>
+    </div>
+  </section>
+
+  <!-- In-test overlay (between rounds, paused) -->
+  <section id="overlay" class="screen" hidden>
+    <div class="card small">
+      <h2 id="ov-title"></h2>
+      <p id="ov-body"></p>
+      <button class="primary" id="ov-btn">Continue</button>
+      <button class="ghost" id="ov-quit">Quit test</button>
+    </div>
+  </section>
+
+  <!-- Results -->
+  <section id="results" class="screen" hidden>
+    <div class="card wide">
+      <header class="brand">
+        <svg viewBox="0 0 32 32" aria-hidden="true"><circle cx="16" cy="16" r="11" fill="none" stroke="currentColor" stroke-width="3"/><circle cx="16" cy="16" r="3" class="dot"/></svg>
+        <h1>Your result</h1>
+      </header>
+      <div id="rec"></div>
+      <h3>Performance by sensitivity</h3>
+      <div id="chart" class="chart"></div>
+      <h3>What we saw</h3>
+      <ul id="insights" class="insights"></ul>
+      <details class="tips">
+        <summary>Round by round numbers</summary>
+        <div class="table-wrap"><table id="table"></table></div>
+      </details>
+      <div class="row">
+        <button class="primary" id="btn-again">Test again</button>
+        <button class="ghost" id="btn-copy">Copy result</button>
+      </div>
+      <p class="fine" id="input-note"></p>
+    </div>
+  </section>
+
+  <script src="js/analysis.js"></script>
+  <script src="js/app.js"></script>
+</body>
+</html>
