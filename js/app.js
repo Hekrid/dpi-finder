@@ -447,7 +447,7 @@
     if (document.pointerLockElement) document.exitPointerLock();
     $('hud').hidden = true;
     const levels = LEVELS.map((m) => A.summarizeLevel(m, results[m].flicks, results[m].tracks));
-    const rec = A.recommend(levels);
+    const rec = A.verdict(levels);
     renderResults(rec);
   }
 
@@ -474,29 +474,41 @@
   let lastText = '';
   function renderResults(rec) {
     const r = buildRecommendation(rec);
-    const change = Math.round((r.m - 1) * 100);
-    const changeTxt = Math.abs(change) < 3 ? 'about the same as now' : `${Math.abs(change)}% ${change > 0 ? 'faster' : 'slower'} than now`;
     const g = GAMES[cfg.game];
+    const lo = rec.band.lo, hi = rec.band.hi;
+    // The likely-best range, in the units the player actually sets.
+    // A range touching the slowest or fastest round is open-ended: the best may lie beyond it.
+    const openLo = lo <= LEVELS[0] * 1.02, openHi = hi >= LEVELS[LEVELS.length - 1] * 0.98;
+    const span = (a, b) => (openLo && openHi ? 'unclear' : openLo ? `≤ ${b}` : openHi ? `≥ ${a}` : `${a} – ${b}`);
+    const rangeTxt = g
+      ? span(fmt(cfg.sens * lo, r.dec), fmt(cfg.sens * hi, r.dec))
+      : span(round50(cfg.dpi * lo), round50(cfg.dpi * hi));
+    // cm/360 runs the other way: faster settings need fewer cm.
+    const cmLo = fmt(cfg.base / hi, 1), cmHi = fmt(cfg.base / lo, 1);
+    const cmTxt = openLo && openHi ? 'unclear' : openLo ? `≥ ${cmLo}` : openHi ? `≤ ${cmHi}` : `${cmLo} – ${cmHi}`;
+    const rangeKey = g ? `Best range, ${g.name} sens at ${cfg.dpi} DPI` : 'Best range, DPI';
     let html = '<div class="rec-hero">';
-    html += `<div class="stat main"><div class="k">Recommended DPI</div><div class="v">${r.dpi}</div><div class="s">now ${cfg.dpi}, ${changeTxt}</div></div>`;
-    if (g) {
-      html += `<div class="stat"><div class="k">eDPI (${g.name})</div><div class="v">${Math.round(r.edpi)}</div><div class="s">now ${Math.round(cfg.dpi * cfg.sens)}</div></div>`;
-    }
-    if (cfg.game !== 'none') {
-      html += `<div class="stat"><div class="k">cm per 360°</div><div class="v">${fmt(r.cm360, 1)}</div><div class="s">now ${fmt(cfg.base, 1)}</div></div>`;
+    if (rec.keep) {
+      html += `<div class="stat main"><div class="k">Verdict</div><div class="v">Keep it</div><div class="s">${cfg.dpi} DPI${g ? `, sens ${cfg.sens}` : ''} is already in your best range</div></div>`;
     } else {
-      const inch = screenWidthPx() / r.dpi;
-      html += `<div class="stat"><div class="k">Hand travel across screen</div><div class="v">${fmt(inch * 2.54, 1)} cm</div><div class="s">now ${fmt((screenWidthPx() / cfg.dpi) * 2.54, 1)} cm</div></div>`;
+      const change = Math.round((r.m - 1) * 100);
+      html += `<div class="stat main"><div class="k">Recommended DPI</div><div class="v">${r.dpi}</div><div class="s">now ${cfg.dpi}, ${Math.abs(change)}% ${change > 0 ? 'faster' : 'slower'}</div></div>`;
+    }
+    html += `<div class="stat"><div class="k">${rangeKey}</div><div class="v">${rangeTxt}</div><div class="s">now ${g ? cfg.sens : cfg.dpi}</div></div>`;
+    if (cfg.game !== 'none') {
+      html += `<div class="stat"><div class="k">Best range, cm per 360°</div><div class="v">${cmTxt}</div><div class="s">now ${fmt(cfg.base, 1)}</div></div>`;
     }
     html += '</div>';
-    if (g) {
-      html += `<p class="rec-alt">Set your mouse to <b>${r.dpi} DPI</b> with ${g.name} sensitivity <b>${fmt(r.sensAtRecDpi, r.dec)}</b>. Or keep ${cfg.dpi} DPI and change sensitivity to <b>${fmt(r.sensSameDpi, r.dec)}</b>.`;
+    if (rec.keep) {
+      html += '<p class="rec-alt">Your scores anywhere in this range were within the normal run-to-run noise of each other, and your current setting sits inside it. <b>Changing would not make you aim better</b>; sticking with one setting and building muscle memory will.</p>';
+    } else if (g) {
+      html += `<p class="rec-alt">Your current setting is outside the range you aimed best in. Set your mouse to <b>${r.dpi} DPI</b> with ${g.name} sensitivity <b>${fmt(r.sensAtRecDpi, r.dec)}</b>, or keep ${cfg.dpi} DPI and change sensitivity to <b>${fmt(r.sensSameDpi, r.dec)}</b>.`;
       if (r.std.dpi !== r.dpi) html += ` If your mouse only has standard steps, use <b>${r.std.dpi} DPI</b> at <b>${fmt(r.std.sens, r.dec)}</b>.`;
-      html += '</p>';
+      html += ' Give it a week before testing again: a new setting always tests worse until your hand adapts.</p>';
     } else {
-      html += `<p class="rec-alt">Set your mouse to <b>${r.dpi} DPI</b> and keep Windows pointer speed at the default (6 of 11) with acceleration off. Most mouse software accepts steps of 50.</p>`;
+      html += `<p class="rec-alt">Your current setting is outside the range you aimed best in. Set your mouse to <b>${r.dpi} DPI</b> and keep Windows pointer speed at the default (6 of 11) with acceleration off. Give it a week before testing again: a new setting always tests worse until your hand adapts.</p>`;
     }
-    html += `<span class="confidence">Confidence: ${rec.confidence}</span><p class="fine" style="margin-top:6px">${rec.reason}</p>`;
+    if (!rec.keep && rec.atEdge) html += `<p class="fine" style="margin-top:6px">${rec.reason}</p>`;
     $('rec').innerHTML = html;
 
     $('insights').innerHTML = A.insights(rec).map((t) => `<li>${t}</li>`).join('');
@@ -506,12 +518,14 @@
     const notes = [];
     if (rawInput === true) notes.push('Raw mouse input was used, so OS acceleration and pointer speed did not affect the test.');
     else notes.push('Raw mouse input was not available in this browser, so the test assumes Windows pointer speed 6/11 with acceleration off. Chrome or Edge give the most accurate result.');
-    notes.push('Results reflect one session. Repeat on another day and average if you want extra certainty.');
+    notes.push('The best range is where 80% of results would land if you replayed this exact session, worked out by resampling your targets. A short test always favours the setting you are used to, so treat any point inside the range as equally good.');
     $('input-note').textContent = notes.join(' ');
 
-    lastText = `DPI Finder: recommended ${r.dpi} DPI (from ${cfg.dpi})` +
-      (g ? `, ${g.name} sens ${fmt(r.sensAtRecDpi, r.dec)}, eDPI ${Math.round(r.edpi)}` : '') +
-      (cfg.game !== 'none' ? `, ${fmt(r.cm360, 1)} cm/360` : '') + `. Confidence ${rec.confidence}.`;
+    lastText = rec.keep
+      ? `DPI Finder: keep ${cfg.dpi} DPI${g ? ` / ${g.name} sens ${cfg.sens}` : ''}, already in my best range (${rangeTxt}).`
+      : `DPI Finder: recommended ${r.dpi} DPI (from ${cfg.dpi})` +
+        (g ? `, ${g.name} sens ${fmt(r.sensAtRecDpi, r.dec)}, eDPI ${Math.round(r.edpi)}` : '') +
+        `. Best range ${rangeTxt}.`;
     $('results').hidden = false;
   }
 
@@ -550,6 +564,10 @@
     });
     s += `<text class="axis-title" x="${(L + w - R) / 2}" y="${h - 6}" text-anchor="middle">${cfg.game === 'none' ? 'Speed vs your current setting (slower ← → faster)' : 'cm per 360° (slower ← → faster)'}</text>`;
     s += '</g>';
+    const clampX = (v) => Math.min(x1, Math.max(x0, Math.log(v)));
+    const bl = sx(clampX(rec.band.lo)), br = sx(clampX(rec.band.hi));
+    s += `<rect class="band" x="${bl}" y="${T}" width="${Math.max(2, br - bl)}" height="${h - T - Bm}"/>`;
+    s += `<line class="now" x1="${sx(0)}" x2="${sx(0)}" y1="${T}" y2="${h - Bm}"/><text class="now-t" x="${sx(0) + 4}" y="${h - Bm - 6}">now</text>`;
     if (rec.fit && rec.fit.a < 0) {
       let d = '';
       for (let i = 0; i <= 60; i++) {
@@ -560,11 +578,12 @@
       s += `<path class="fit" d="${d}"/>`;
     }
     s += `<path class="series" d="${ls.map((l, i) => (i ? 'L' : 'M') + sx(Math.log(l.m)) + ',' + sy(l.score)).join('')}"/>`;
-    const bx = sx(Math.log(rec.multiplier));
+    const lp = Math.log(rec.peak);
+    const bx = sx(lp);
     const by = rec.fit && rec.fit.a < 0 && rec.method === 'curve-peak'
-      ? sy(Math.min(ymax, rec.fit.a * Math.log(rec.multiplier) ** 2 + rec.fit.b * Math.log(rec.multiplier) + rec.fit.c))
+      ? sy(Math.min(ymax, rec.fit.a * lp ** 2 + rec.fit.b * lp + rec.fit.c))
       : sy(Math.max(...ys));
-    s += `<g class="best"><line x1="${bx}" x2="${bx}" y1="${T - 6}" y2="${h - Bm}"/><circle cx="${bx}" cy="${by}" r="5"/><text x="${bx}" y="${T - 10}" text-anchor="middle">Best</text></g>`;
+    s += `<g class="best"><line x1="${bx}" x2="${bx}" y1="${T - 6}" y2="${h - Bm}"/><circle cx="${bx}" cy="${by}" r="5"/><text x="${bx}" y="${T - 10}" text-anchor="middle">Peak</text></g>`;
     ls.forEach((l, i) => {
       s += `<circle class="pt" cx="${sx(Math.log(l.m))}" cy="${sy(l.score)}" r="5"/>`;
       s += `<circle class="hit" data-i="${i}" cx="${sx(Math.log(l.m))}" cy="${sy(l.score)}" r="16"/>`;

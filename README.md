@@ -12,7 +12,10 @@ An aim-trainer style browser test that measures how you move your mouse and reco
    - Overshoot and undershoot of the first ballistic movement
    - Number of corrective sub-movements
    - Tracking time on target and whether you lead or trail the target
-5. Flick and tracking scores are combined, a curve is fitted across the tested sensitivities, and its peak becomes the recommendation.
+5. Flick and tracking scores are combined and a curve is fitted across the tested sensitivities.
+6. The session is resampled a few hundred times (bootstrap) to find the range where 80% of results would land if you replayed it. If your current setting is inside that range, the verdict is **keep it**; only a setting clearly outside the range gets a change recommendation.
+
+Why a range: performance is flat near the optimum, a short test favours the setting you're used to, and a few dozen targets per round are noisy. A single "best" number therefore jumps around between runs. `node test/simulate.js` shows this: for a simulated player who is already at their optimum, the old single-number result ranged from 0.65x to 1.17x across runs, while the range-based verdict says "keep it" about 80% of the time.
 
 Everything runs in the browser; no data leaves your machine.
 
@@ -30,6 +33,7 @@ then open http://localhost:8000. Pointer Lock needs `http://localhost` or HTTPS.
 
 ```sh
 node test/analysis.test.js
+node test/simulate.js   # run-to-run stability: [optimum] [flicks] [trackSec] [runs] [curvature]
 ```
 
 ## Deploying

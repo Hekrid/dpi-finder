@@ -115,20 +115,38 @@
     return { onTarget: on / tot, meanErr: err / tot, lead: lead / tot, seconds: tot / 1000 };
   }
 
+  /** Split a tracking run into ~1 s chunks so they can be resampled. */
+  function trackChunks(frames, ms = 1000) {
+    const out = [];
+    let cur = [], acc = 0;
+    for (const f of frames) {
+      cur.push(f);
+      acc += f.dt;
+      if (acc >= ms) { out.push(analyzeTracking(cur)); cur = []; acc = 0; }
+    }
+    if (acc >= ms / 2) out.push(analyzeTracking(cur));
+    return out;
+  }
+
   /** Aggregate all rounds played at one multiplier. */
   function summarizeLevel(m, flicks, tracks) {
-    const a = flicks.map(analyzeFlick);
+    return summarizeStats(m, flicks.map(analyzeFlick), tracks.flatMap((t) => trackChunks(t)));
+  }
+
+  /** Same, from already analysed flicks and tracking chunks. */
+  function summarizeStats(m, a, t) {
     const hits = a.filter((f) => f.hit);
     const missClicks = a.reduce((s, f) => s + f.missClicks, 0);
     const timeouts = a.length - hits.length;
     const accuracy = hits.length / Math.max(1, hits.length + missClicks + timeouts);
     // Per-trial throughput; median keeps one fumbled target from dominating.
     const tp = median(hits.map((f) => f.id / (f.timeMs / 1000)));
-    const t = tracks.map(analyzeTracking);
     const secs = t.reduce((s, x) => s + x.seconds, 0) || 1;
     const w = (k) => t.reduce((s, x) => s + x[k] * x.seconds, 0) / secs;
     return {
       m,
+      flickStats: a,
+      trackStats: t,
       trials: a.length,
       hits: hits.length,
       missClicks,
@@ -143,6 +161,55 @@
       trackErr: t.length ? w('meanErr') : NaN,
       trackLead: t.length ? w('lead') : 0,
     };
+  }
+
+  /** Small seeded PRNG so results are reproducible for a given run. */
+  function rng(seed) {
+    let a = seed >>> 0;
+    return () => {
+      a = (a + 0x6d2b79f5) >>> 0;
+      let t = a;
+      t = Math.imul(t ^ (t >>> 15), t | 1);
+      t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+      return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+    };
+  }
+
+  const quantile = (sorted, q) => {
+    const i = (sorted.length - 1) * q, lo = Math.floor(i), hi = Math.ceil(i);
+    return sorted[lo] + (sorted[hi] - sorted[lo]) * (i - lo);
+  };
+
+  /**
+   * How much would the answer move if the same person played again?
+   * Resample each round's targets and tracking seconds with replacement and
+   * redo the whole recommendation. Returns the middle 80% of optima.
+   */
+  function bootstrap(levels, B = 400, seed = 1) {
+    const r = rng(seed);
+    const pick = (arr) => { const o = []; for (let i = 0; i < arr.length; i++) o.push(arr[Math.floor(r() * arr.length)]); return o; };
+    const xs = [];
+    for (let b = 0; b < B; b++) {
+      const ls = levels.map((l) => summarizeStats(l.m, pick(l.flickStats), pick(l.trackStats)));
+      xs.push(Math.log(recommend(ls).multiplier));
+    }
+    xs.sort((p, q) => p - q);
+    return { lo: Math.exp(quantile(xs, 0.1)), mid: Math.exp(quantile(xs, 0.5)), hi: Math.exp(quantile(xs, 0.9)) };
+  }
+
+  /**
+   * The verdict shown to the user. Short-term tests favour the sensitivity you
+   * already know, and a few dozen targets per round are noisy, so we only say
+   * "change" when the whole likely range sits clearly away from the current one.
+   */
+  const KEEP_WITHIN = 0.07; // +/-7% is below what players can reliably feel or benefit from
+  function verdict(levels) {
+    const rec = recommend(levels);
+    const band = bootstrap(levels);
+    const near = (m) => Math.abs(Math.log(m)) <= Math.log(1 + KEEP_WITHIN);
+    const keep = (band.lo <= 1 && band.hi >= 1) || near(band.mid);
+    const target = keep ? 1 : band.mid;
+    return { ...rec, band, keep, multiplier: target, peak: rec.multiplier };
   }
 
   /** Weighted least squares fit y = a x^2 + b x + c. */
@@ -253,7 +320,7 @@
     return out;
   }
 
-  const api = { fittsID, resample, analyzeFlick, analyzeTracking, summarizeLevel, fitQuadratic, recommend, insights, median, mean };
+  const api = { fittsID, resample, analyzeFlick, analyzeTracking, trackChunks, summarizeLevel, summarizeStats, bootstrap, verdict, rng, fitQuadratic, recommend, insights, median, mean };
   if (typeof module !== 'undefined' && module.exports) module.exports = api;
   else root.DPIA = api;
 })(this);
